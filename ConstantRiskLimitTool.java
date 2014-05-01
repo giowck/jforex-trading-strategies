@@ -34,6 +34,7 @@ import com.dukascopy.api.IContext;
 import com.dukascopy.api.IEngine;
 import com.dukascopy.api.IHistory;
 import com.dukascopy.api.IMessage;
+import com.dukascopy.api.IMessage.Type;
 import com.dukascopy.api.IOrder;
 import com.dukascopy.api.IStrategy;
 import com.dukascopy.api.ITick;
@@ -79,6 +80,8 @@ public class ConstantRiskLimitTool implements IStrategy {
             description = "Move SL to break even once 90% of TP is reached")
     public boolean moveSLBreakEven90 = false;
 
+    //this is a safety feature to avoid too big position sizes due to typos
+    private static final double maxPositionSize = 0.05;
 
     private IEngine engine;
     private IHistory history;
@@ -154,7 +157,7 @@ public class ConstantRiskLimitTool implements IStrategy {
 
     @Override
     public void onMessage(IMessage message) throws JFException {
-        if (message.getType() == IMessage.Type.ORDER_CLOSE_OK) {
+        if (message.getType() == Type.ORDER_CLOSE_OK) {
             //update order variable on order close
             this.orderIsOpen = false;
             IOrder order = message.getOrder();
@@ -164,17 +167,17 @@ public class ConstantRiskLimitTool implements IStrategy {
             this.totalProfit += order.getProfitLossInAccountCurrency();
             this.totalCommission += order.getCommission();
             
-        } else if (message.getType() == IMessage.Type.ORDER_SUBMIT_REJECTED) {
+        } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
             //update order variable on order rejection
             this.orderIsOpen = false;
             IOrder order = message.getOrder();
             console.getErr().println("Order " + order.getLabel() + " rejected.");
 
-        } else if (message.getType() == IMessage.Type.ORDER_CHANGED_REJECTED) {
+        } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
             IOrder order = message.getOrder();
             console.getErr().println("Order " + order.getLabel() + " change rejected.");
 
-        } else if (message.getType() == IMessage.Type.INSTRUMENT_STATUS) {
+        } else if (message.getType() == Type.INSTRUMENT_STATUS) {
             //filter out
             return;
         }
@@ -265,9 +268,18 @@ public class ConstantRiskLimitTool implements IStrategy {
         
         //calc position size
         double units = constantCurrencyRisk / stopLossPips * 100000 / accountCurrencyPerPip;
-        
+
         //convert to standard lots
-        return units / 1000000;
+        double lots = units / 1000000;
+
+        //check position size safety
+        if (lots > maxPositionSize) {
+            console.getErr().println("Position size exceeds safety check, maxPositionSize constant"
+                    + " is " + maxPositionSize + " lots. But current position size is " + lots + " lots.");
+            lots = 0;
+        }
+
+        return lots;
     }
 
     private void checkSLMoveBE() throws JFException {
