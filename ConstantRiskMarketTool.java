@@ -83,6 +83,7 @@ public class ConstantRiskMarketTool implements IStrategy {
     private boolean orderIsOpen;
     private double totalProfit;
     private double totalCommission;
+    private String orderLabel;
 
     @Override
     public void onStart(IContext context) throws JFException {
@@ -93,6 +94,7 @@ public class ConstantRiskMarketTool implements IStrategy {
         this.console = context.getConsole();
         this.totalProfit = 0;
         this.totalCommission = 0;
+        this.orderLabel = "";
 
         //subscribe instruments
         console.getOut().println("Strategy starting. Subscribing instruments...");
@@ -132,14 +134,14 @@ public class ConstantRiskMarketTool implements IStrategy {
     @Override
     public void onBar(Instrument instrument, Period period, IBar askBar, IBar bidBar) throws JFException {
         //check if any order meets the 90% B.E. SL move requirements
-        if (instrument.equals(this.instrument) && period.equals(Period.ONE_MIN)) {
+        if (instrument.equals(this.instrument) && period.equals(Period.ONE_MIN) && (orderIsOpen)) {
             checkSLMoveBE();
         }
     }
 
-    @Override
+        @Override
     public void onMessage(IMessage message) throws JFException {
-        if (message.getType() == Type.ORDER_CLOSE_OK) {
+        if (message.getType() == IMessage.Type.ORDER_CLOSE_OK) {
             //update order variable on order close
             this.orderIsOpen = false;
             IOrder order = message.getOrder();
@@ -149,17 +151,21 @@ public class ConstantRiskMarketTool implements IStrategy {
             this.totalProfit += order.getProfitLossInAccountCurrency();
             this.totalCommission += order.getCommission();
             
-        } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
+        } else if (message.getType() == IMessage.Type.ORDER_SUBMIT_REJECTED) {
             //update order variable on order rejection
             this.orderIsOpen = false;
             IOrder order = message.getOrder();
             console.getErr().println("Order " + order.getLabel() + " rejected.");
-            
-        } else if (message.getType() == Type.INSTRUMENT_STATUS) {
+
+        } else if (message.getType() == IMessage.Type.ORDER_CHANGED_REJECTED) {
+            IOrder order = message.getOrder();
+            console.getErr().println("Order " + order.getLabel() + " change rejected.");
+
+        } else if (message.getType() == IMessage.Type.INSTRUMENT_STATUS) {
             //filter out
-        } else {
-            context.getConsole().getOut().println("Message: " + message.toString());
+            return;
         }
+        context.getConsole().getOut().println("Message: " + message.toString());
     }
 
     @Override
@@ -251,7 +257,8 @@ public class ConstantRiskMarketTool implements IStrategy {
     private void checkSLMoveBE() throws JFException {
         if (moveSLBreakEven90) { //is it user enabled
             double percent90Profit = this.constantCurrencyRisk * 0.90 * rewardRiskRatio;
-            for (IOrder o : engine.getOrders()) {
+            IOrder o = engine.getOrder(orderLabel);
+            if (o != null) {
                 if (o.getProfitLossInAccountCurrency() >= percent90Profit) {
                     double openPrice = o.getOpenPrice();
                     if (o.getStopLossPrice() != openPrice) {
@@ -259,6 +266,8 @@ public class ConstantRiskMarketTool implements IStrategy {
                         console.getOut().println("Order " + o.getLabel() + ": SL moved to B.E.");
                     }
                 }
+            } else {
+                console.getErr().println("Order " + orderLabel + " not found");
             }
         }
     }

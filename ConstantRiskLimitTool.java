@@ -178,7 +178,6 @@ public class ConstantRiskLimitTool implements IStrategy {
             //filter out
             return;
         }
-        
         context.getConsole().getOut().println("Message: " + message.toString());
     }
 
@@ -274,7 +273,8 @@ public class ConstantRiskLimitTool implements IStrategy {
     private void checkSLMoveBE() throws JFException {
         if (moveSLBreakEven90) { //is it user enabled
             double percent90Profit = this.constantCurrencyRisk * 0.90 * rewardRiskRatio;
-            for (IOrder o : engine.getOrders()) {
+            IOrder o = engine.getOrder(orderLabel);
+            if (o != null) {
                 if (o.getProfitLossInAccountCurrency() >= percent90Profit) {
                     double openPrice = o.getOpenPrice();
                     if (o.getStopLossPrice() != openPrice) {
@@ -282,6 +282,8 @@ public class ConstantRiskLimitTool implements IStrategy {
                         console.getOut().println("Order " + o.getLabel() + ": SL moved to B.E.");
                     }
                 }
+            } else {
+                console.getErr().println("Order " + orderLabel + " not found");
             }
         }
     }
