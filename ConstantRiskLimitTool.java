@@ -42,6 +42,8 @@ import com.dukascopy.api.Instrument;
 import com.dukascopy.api.JFException;
 import com.dukascopy.api.Period;
 import java.math.BigDecimal;
+import java.util.HashSet;
+import java.util.Set;
 
 /*
  * This tool places a limit order with constant currency risk.
@@ -61,9 +63,12 @@ public class ConstantRiskLimitTool implements IStrategy {
     public Instrument instrument = Instrument.EURUSD;
     @Configurable("Period")
     public Period period = Period.DAILY;
-    @Configurable(value = "Order side",
-            description = "Long/BUYLIMIT or short/SELLLIMIT")
-    public IEngine.OrderCommand orderCmd = IEngine.OrderCommand.BUYLIMIT;
+    @Configurable(value = "Buy order",
+            description = "Place a BUYLIMIT order (long)")
+    public boolean isBuyOrder = false;
+    @Configurable(value = "Sell order",
+            description = "Place a SELLLIMIT order (short)")
+    public boolean isSellOrder = false;
     @Configurable(value = "Constant risk amount",
             description = "Constant account currency risk for each trade")
     public int constantCurrencyRisk = 100;
@@ -91,6 +96,7 @@ public class ConstantRiskLimitTool implements IStrategy {
     private double totalProfit;
     private double totalCommission;
     private String orderLabel;
+    private IEngine.OrderCommand orderCmd;
 
     @Override
     public void onStart(IContext context) throws JFException {
@@ -105,11 +111,16 @@ public class ConstantRiskLimitTool implements IStrategy {
 
         //subscribe instruments
         console.getOut().println("Strategy starting. Subscribing instruments...");
-        context.setSubscribedInstruments(java.util.Collections.singleton(instrument));
+        subscribeInstruments();
         
-        //check order command
-        if ((orderCmd != IEngine.OrderCommand.BUYLIMIT)  && (orderCmd != IEngine.OrderCommand.SELLLIMIT)) {
-            console.getErr().println("Invalid order side, please use only BUYLIMIT or SELLLIMIT");
+        //check and setup order command
+        if (isBuyOrder ^ isSellOrder) {
+            if (isBuyOrder)
+                orderCmd = IEngine.OrderCommand.BUYLIMIT;
+            else
+                orderCmd = IEngine.OrderCommand.SELLLIMIT;
+        } else {
+            console.getErr().println("Invalid order side, please check only BUYLIMIT or SELLLIMIT");
             return;
         }
         
@@ -319,6 +330,33 @@ public class ConstantRiskLimitTool implements IStrategy {
             console.getOut().println("Order " + o.getLabel()
                     + " updated position size: " + newPositionSize);
         }
+    }
+
+    private void subscribeInstruments() {
+        //init list
+        Set<Instrument> instruments = new HashSet<Instrument>();
+        instruments.add(instrument);
+
+        //init symbols
+        String accountCurrency = context.getAccount().getCurrency().getCurrencyCode();
+        String primaryCurrency = instrument.getPrimaryCurrency().getCurrencyCode();
+        String apCurrency = accountCurrency + "/" + primaryCurrency;
+        
+        //find complementary instrument
+        Instrument i;
+        if (primaryCurrency.equals(accountCurrency)) {
+            i = instrument;
+        } else {
+            i = Instrument.fromString(apCurrency);
+        }
+        if (i == null) { //currency not found, try inverted pair
+            i = Instrument.fromInvertedString(apCurrency);
+        }
+        if (i != instrument)
+            instruments.add(i);
+
+        //subscribe
+        context.setSubscribedInstruments(instruments, true);
     }
 
 }
