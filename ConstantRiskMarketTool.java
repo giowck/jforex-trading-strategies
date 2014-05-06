@@ -111,9 +111,9 @@ public class ConstantRiskMarketTool implements IStrategy {
         //check and setup order command
         if (isBuyOrder ^ isSellOrder) {
             if (isBuyOrder)
-                orderCmd = IEngine.OrderCommand.BUYLIMIT;
+                orderCmd = IEngine.OrderCommand.BUY;
             else
-                orderCmd = IEngine.OrderCommand.SELLLIMIT;
+                orderCmd = IEngine.OrderCommand.SELL;
         } else {
             console.getErr().println("Invalid order side, please check only BUYLIMIT or SELLLIMIT");
             return;
