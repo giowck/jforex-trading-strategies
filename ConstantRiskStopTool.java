@@ -64,10 +64,10 @@ public class ConstantRiskStopTool implements IStrategy {
     @Configurable("Period")
     public Period period = Period.DAILY;
     @Configurable(value = "Buy order",
-            description = "Place a BUYLIMIT order (long)")
+            description = "Place a BUYSTOP order (long)")
     public boolean isBuyOrder = false;
     @Configurable(value = "Sell order",
-            description = "Place a SELLLIMIT order (short)")
+            description = "Place a SELLSTOP order (short)")
     public boolean isSellOrder = false;
     @Configurable(value = "Constant risk amount",
             description = "Constant account currency risk for each trade")
@@ -124,9 +124,9 @@ public class ConstantRiskStopTool implements IStrategy {
             return;
         }
         
-        //check limit price
+        //check stop price
         if (entryStopPrice <= 0) {
-            console.getErr().println("Invalid limit order entry price");
+            console.getErr().println("Invalid stop order entry price");
             return;
         }
 
@@ -145,7 +145,7 @@ public class ConstantRiskStopTool implements IStrategy {
         IOrder order = submitOrder(this.constantCurrencyRisk, orderCmd, stopLossPips, takeProfitPips);
         console.getInfo().println("Order " + order.getLabel()
                 + " submitted. Direction: " + direction
-                + " Limit entry: " + entryStopPrice
+                + " Stop entry: " + entryStopPrice
                 + " Stop loss: " + order.getStopLossPrice()
                 + " Take profit: " + order.getTakeProfitPrice()
                 + " Amount: " + order.getAmount());
@@ -255,12 +255,12 @@ public class ConstantRiskStopTool implements IStrategy {
         
         if (i == null) { //currency not found, try inverted pair
             i = Instrument.fromInvertedString(apCurrency);
-            if (orderCmd == IEngine.OrderCommand.BUYLIMIT)
+            if (orderCmd == IEngine.OrderCommand.BUYSTOP)
                 accountCurrencyExchangeRate = 1 / history.getLastTick(i).getAsk();
             else
                 accountCurrencyExchangeRate = 1 / history.getLastTick(i).getBid();
         } else {
-            if (orderCmd == IEngine.OrderCommand.BUYLIMIT)
+            if (orderCmd == IEngine.OrderCommand.BUYSTOP)
                 accountCurrencyExchangeRate = history.getLastTick(i).getAsk();
             else
                 accountCurrencyExchangeRate = history.getLastTick(i).getBid();
@@ -268,7 +268,7 @@ public class ConstantRiskStopTool implements IStrategy {
         
         //calc currency/pip value
         double pairExchangeRate;
-        if (orderCmd == IEngine.OrderCommand.BUYLIMIT)
+        if (orderCmd == IEngine.OrderCommand.BUYSTOP)
             pairExchangeRate = history.getLastTick(pair).getAsk();
         else
             pairExchangeRate = history.getLastTick(pair).getBid();
