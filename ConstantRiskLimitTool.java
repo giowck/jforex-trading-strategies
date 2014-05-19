@@ -188,7 +188,8 @@ public class ConstantRiskLimitTool implements IStrategy {
             IOrder order = message.getOrder();
             console.getErr().println("Order " + order.getLabel() + " change rejected.");
 
-        } else if (message.getType() == Type.INSTRUMENT_STATUS) {
+        } else if ((message.getType() == Type.INSTRUMENT_STATUS)
+                || (message.getType() == Type.CALENDAR)) {
             //filter out
             return;
         }
@@ -226,7 +227,7 @@ public class ConstantRiskLimitTool implements IStrategy {
         //create order label
         this.orderLabel = getLabel(orderCmd);
         
-        //submit order at market
+        //submit order
         return engine.submitOrder(orderLabel, instrument, orderCmd, positionSize,
                                   entryLimitPrice, 5, stopLossPrice, takeProfitPrice);
     }

@@ -174,7 +174,8 @@ public class ConstantRiskMarketTool implements IStrategy {
             IOrder order = message.getOrder();
             console.getErr().println("Order " + order.getLabel() + " change rejected.");
 
-        } else if (message.getType() == Type.INSTRUMENT_STATUS) {
+        } else if ((message.getType() == Type.INSTRUMENT_STATUS)
+                || (message.getType() == Type.CALENDAR)) {
             //filter out
             return;
         }
