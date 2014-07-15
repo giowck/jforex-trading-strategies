@@ -62,10 +62,10 @@ public class ConstantRiskMarketPriceTool implements IStrategy {
     @Configurable("Period")
     public Period period = Period.DAILY;
     @Configurable(value = "Buy order",
-            description = "Place a BUYLIMIT order (long)")
+            description = "Place a BUY order (long)")
     public boolean isBuyOrder = false;
     @Configurable(value = "Sell order",
-            description = "Place a SELLLIMIT order (short)")
+            description = "Place a SELL order (short)")
     public boolean isSellOrder = false;
     @Configurable(value = "Constant risk amount",
             description = "Constant account currency risk for each trade")
