@@ -47,14 +47,14 @@ import java.util.Set;
 
 /*
  * This tool places a market order with constant currency risk.
- * Difference here is that the stop loss price is derived from take profit price.
- * Once you define your position currency risk and take profit price,
+ * Once you define your position currency risk, stop loss price and take profit targets
  * this tool will calculate the right amount (lot size) to meet the defined currency risk.
- * Other nice features, auto stop loss price calculation based on risk:reward 1:1
- * ratio, stop loss move to break even once the price reached 90% of target (TP).
+ * This includes a scale out mechanism, where you can define target 1 (T1) and target 2 (T2).
+ * It is also possible to specify the break even trigger price, which is the price
+ * where the stop loss (SL) is moved to break even (B.E.)
  * Use at your own risk.
  */
-public class ConstantRiskSLfromTP implements IStrategy {
+public class ConstRiskMarketScaleOut implements IStrategy {
 
     // Configurable parameters
     @Configurable("Instrument")
@@ -70,12 +70,18 @@ public class ConstantRiskSLfromTP implements IStrategy {
     @Configurable(value = "Constant risk amount",
             description = "Constant account currency risk for each trade")
     public int constantCurrencyRisk = 10;
-    @Configurable(value = "Take profit price",
-            description = "Price of take profit target")
-    public double takeProfitPrice = 0;
-    @Configurable(value = "B.E. on 90%",
-            description = "Move SL to break even once 90% of TP is reached")
-    public boolean moveSLBreakEven90 = false;
+    @Configurable(value = "Stop loss price",
+            description = "Price of stop loss placement")
+    public double stopLossPrice = 0;
+    @Configurable(value = "Target 1 price",
+            description = "Price of take profit level for target 1")
+    public double target1Price = 0;
+    @Configurable(value = "Target 2 price",
+            description = "Price of take profit level for target 2, if 0 full position is closed at T1")
+    public double target2Price = 0;
+    @Configurable(value = "Break even trigger price",
+            description = "Move stop loss to break even once this price is hit, 0 means not active")
+    public double breakEvenTriggerPrice = 0;
 
     //this is a safety feature to avoid too big position sizes due to typos
     private static final double maxPositionSize = 0.05;
@@ -84,10 +90,14 @@ public class ConstantRiskSLfromTP implements IStrategy {
     private IHistory history;
     private IContext context;
     private IConsole console;
-    private boolean orderIsOpen;
+    private boolean order1IsOpen;
+    private boolean order2IsOpen;
     private double totalProfit;
     private double totalCommission;
-    private String orderLabel;
+    private String order1Label;
+    private String order2Label;
+    private boolean scaleOutActive;
+    private boolean moveSLToBreakEvenActive;
     private IEngine.OrderCommand orderCmd;
 
     @Override
@@ -95,11 +105,13 @@ public class ConstantRiskSLfromTP implements IStrategy {
         this.engine = context.getEngine();
         this.history = context.getHistory();
         this.context = context;
-        this.orderIsOpen = false;
+        this.order1IsOpen = false;
+        this.order2IsOpen = false;
         this.console = context.getConsole();
         this.totalProfit = 0;
         this.totalCommission = 0;
-        this.orderLabel = "";
+        this.order1Label = "";
+        this.order2Label = "";
 
         //subscribe instruments
         console.getOut().println("Strategy starting. Subscribing instruments...");
@@ -116,34 +128,49 @@ public class ConstantRiskSLfromTP implements IStrategy {
             return;
         }
         
-        //check take profit price
-        if (takeProfitPrice <= 0.0) {
-            console.getErr().println("Invalid take profit price: " + takeProfitPrice);
+        //check stop loss price
+        if (stopLossPrice <= 0.0) {
+            console.getErr().println("Invalid stop loss price: " + stopLossPrice);
             return;
         }
-
-        //calc take profit pips
-        double takeProfitPips;
-        if (isBuyOrder) {
-            takeProfitPips = Math.abs(takeProfitPrice - history.getLastTick(instrument).getAsk()) *
-                    Math.pow(10, this.instrument.getPipScale());
-        } else {
-            takeProfitPips = Math.abs(takeProfitPrice - history.getLastTick(instrument).getBid()) *
-                    Math.pow(10, this.instrument.getPipScale());
+        //check target 1 price
+        if (target1Price <= 0.0) {
+            console.getErr().println("Invalid target 1 price: " + target1Price);
+            return;
         }
         
-        //calc profit pips
-        double stopLossPips = takeProfitPips; //risk:reward 1:1
+        //check if scale out is active (if T2 is 0, no scale out, exit full position on T1)
+        this.scaleOutActive = (target2Price > 0.0);
         
+        //if scale out active halve currency risk, because of position plitting on 2 orders
+        if (scaleOutActive) {
+            constantCurrencyRisk /= 2;
+        }
+        
+        //check if break even prive trigger is active (if 0, don't move SL to BE)
+        this.moveSLToBreakEvenActive = (breakEvenTriggerPrice > 0.0);
+
         //submit order
         String direction = orderCmd.isLong() ? "long" : "short";
-        IOrder order = submitOrder(this.constantCurrencyRisk, orderCmd, stopLossPips);
-        console.getInfo().println("Order " + order.getLabel()
+        IOrder order1 = submitOrder(this.constantCurrencyRisk, orderCmd, stopLossPrice, target1Price);
+        console.getInfo().println("Order 1" + order1.getLabel()
                 + " submitted. Direction: " + direction
-                + " Stop loss: " + order.getStopLossPrice()
-                + " Take profit: " + order.getTakeProfitPrice()
-                + " Amount: " + order.getAmount());
-        this.orderIsOpen = true;
+                + " Stop loss: " + order1.getStopLossPrice()
+                + " Take profit: " + order1.getTakeProfitPrice()
+                + " Amount: " + order1.getAmount());
+        order1Label = order1.getLabel();
+        this.order1IsOpen = true;
+        
+        if (scaleOutActive) { //open 2nd order
+            IOrder order2 = submitOrder(this.constantCurrencyRisk, orderCmd, stopLossPrice, target2Price);
+            console.getInfo().println("Order 2" + order2.getLabel()
+                    + " submitted. Direction: " + direction
+                    + " Stop loss: " + order2.getStopLossPrice()
+                    + " Take profit: " + order2.getTakeProfitPrice()
+                    + " Amount: " + order2.getAmount());
+            order2Label = order2.getLabel();
+            this.order2IsOpen = true;
+        }
     }
 
     @Override
@@ -152,8 +179,8 @@ public class ConstantRiskSLfromTP implements IStrategy {
 
     @Override
     public void onBar(Instrument instrument, Period period, IBar askBar, IBar bidBar) throws JFException {
-        //check if any order meets the 90% B.E. SL move requirements
-        if (instrument.equals(this.instrument) && period.equals(Period.ONE_MIN) && (orderIsOpen)) {
+        //check if any order meets the B.E. SL move requirements
+        if (instrument.equals(this.instrument) && period.equals(Period.ONE_MIN) && (order1IsOpen || order2IsOpen)) {
             checkSLMoveBE();
         }
     }
@@ -161,20 +188,40 @@ public class ConstantRiskSLfromTP implements IStrategy {
         @Override
     public void onMessage(IMessage message) throws JFException {
         if (message.getType() == Type.ORDER_CLOSE_OK) {
-            //update order variable on order close
-            this.orderIsOpen = false;
+            //update order variables on order close
             IOrder order = message.getOrder();
-            console.getInfo().println("Order " + order.getLabel() +
-                                      " closed. Profit: " + order.getProfitLossInAccountCurrency());
-            //update profit/loss and commission
-            this.totalProfit += order.getProfitLossInAccountCurrency();
-            this.totalCommission += order.getCommission();
+
+            if (order.getLabel() == order1Label) { //check order 1
+                this.order1IsOpen = false;
+                console.getInfo().println("Order 1 " + order.getLabel()
+                        + " closed. Profit: " + order.getProfitLossInAccountCurrency());
+                //update profit/loss and commission
+                this.totalProfit += order.getProfitLossInAccountCurrency();
+                this.totalCommission += order.getCommission();
+            } else if (order.getLabel() == order2Label) { //check order 2
+                this.order2IsOpen = false;
+                console.getInfo().println("Order 2 " + order.getLabel()
+                        + " closed. Profit: " + order.getProfitLossInAccountCurrency());
+                //update profit/loss and commission
+                this.totalProfit += order.getProfitLossInAccountCurrency();
+                this.totalCommission += order.getCommission();
+            } else  {
+                //nothing
+            }
             
         } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
-            //update order variable on order rejection
-            this.orderIsOpen = false;
+            //update order variables on order rejection
             IOrder order = message.getOrder();
-            console.getErr().println("Order " + order.getLabel() + " rejected.");
+            
+            if (order.getLabel() == order1Label) { //check order 1
+                this.order1IsOpen = false;
+                console.getErr().println("Order 1 " + order.getLabel() + " rejected.");
+            } else if (order.getLabel() == order2Label) { //check order 2
+                this.order2IsOpen = false;
+                console.getErr().println("Order 2 " + order.getLabel() + " rejected.");
+            } else  {
+                //nothing
+            }
 
         } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
             IOrder order = message.getOrder();
@@ -199,31 +246,23 @@ public class ConstantRiskSLfromTP implements IStrategy {
                 " Net Profit: " + (totalProfit - totalCommission));
     }
 
-    private IOrder submitOrder(int currencyRisk, OrderCommand orderCmd, double stopLossPips)
+    private IOrder submitOrder(int currencyRisk, OrderCommand orderCmd, double stopLossPrice, double takeProfitPrice)
             throws JFException {
-        double stopLossPrice;
-        ITick lastTick = history.getLastTick(instrument);
         double positionSize;
         
-        //calc take profit price
-        if (orderCmd == OrderCommand.BUY) {
-            stopLossPrice = lastTick.getAsk() - stopLossPips * instrument.getPipValue();
-        } else {
-            stopLossPrice = lastTick.getBid() + stopLossPips * instrument.getPipValue();
-        }
-        
         //calc position size
-        positionSize = getPositionSize(instrument, stopLossPips, currencyRisk, orderCmd);
+        positionSize = getPositionSize(instrument, stopLossPrice, currencyRisk, orderCmd);
         
         //submit order at market
         return engine.submitOrder(getLabel(orderCmd), instrument, orderCmd, positionSize, 0, 5, stopLossPrice, takeProfitPrice);
     }
     
     private String getLabel(OrderCommand cmd) {
-        return cmd.toString() + System.currentTimeMillis();
+        String orderNum = (order1IsOpen) ? "ORDER2" : "ORDER1";
+        return cmd.toString() + orderNum + System.currentTimeMillis();
     }
 
-    private double getPositionSize(Instrument pair, double stopLossPips, int constantCurrencyRisk, OrderCommand orderCmd)
+    private double getPositionSize(Instrument pair, double stopLossPrice, int constantCurrencyRisk, OrderCommand orderCmd)
             throws JFException {
         //init symbols
         String accountCurrency = context.getAccount().getCurrency().getCurrencyCode();
@@ -265,6 +304,16 @@ public class ConstantRiskSLfromTP implements IStrategy {
         if (!primaryCurrency.equals(accountCurrency)) 
             accountCurrencyPerPip /= accountCurrencyExchangeRate; //convert to account pip value
         
+        //calc stop loss pips
+        double stopLossPips;
+        if (orderCmd == OrderCommand.BUY) {
+            stopLossPips = Math.abs(stopLossPrice - history.getLastTick(instrument).getAsk()) *
+                    Math.pow(10, this.instrument.getPipScale());
+        } else {
+            stopLossPips = Math.abs(stopLossPrice - history.getLastTick(instrument).getBid()) *
+                    Math.pow(10, this.instrument.getPipScale());
+        }
+        
         //calc position size
         double units = constantCurrencyRisk / stopLossPips * 100000 / accountCurrencyPerPip;
         
@@ -272,9 +321,11 @@ public class ConstantRiskSLfromTP implements IStrategy {
         double lots = units / 1000000;
 
         //check position size safety
-        if (lots > maxPositionSize) {
+        double positionSizeLimit;
+        positionSizeLimit = (!scaleOutActive) ? maxPositionSize : (maxPositionSize / 2);
+        if (lots > positionSizeLimit) {
             console.getErr().println("Position size exceeds safety check, maxPositionSize constant"
-                    + " is " + maxPositionSize + " lots. But current position size is " + lots + " lots.");
+                    + " is " + positionSizeLimit + " lots. But current position size is " + lots + " lots.");
             lots = 0;
         }
 
@@ -282,19 +333,49 @@ public class ConstantRiskSLfromTP implements IStrategy {
     }
 
     private void checkSLMoveBE() throws JFException {
-        if (moveSLBreakEven90) { //is it user enabled
-            double percent90Profit = this.constantCurrencyRisk * 0.90;
-            IOrder o = engine.getOrder(orderLabel);
-            if (o != null) {
-                if (o.getProfitLossInAccountCurrency() >= percent90Profit) {
-                    double openPrice = o.getOpenPrice();
-                    if (o.getStopLossPrice() != openPrice) {
-                        o.setStopLossPrice(openPrice); // move SL to B.E.
-                        console.getOut().println("Order " + o.getLabel() + ": SL moved to B.E.");
+        if (moveSLToBreakEvenActive) { //is it user enabled
+            //get last tick price
+            ITick lastTick = history.getLastTick(instrument);
+            double currentTickPrice = (orderCmd == OrderCommand.BUY) ? lastTick.getAsk() : lastTick.getBid();
+            boolean breakEvenTriggerReached = false;
+            
+            //check T1 hit
+            if ((isBuyOrder) && (currentTickPrice >= breakEvenTriggerPrice)) {
+                breakEvenTriggerReached = true;
+            } else if ((isSellOrder) && (currentTickPrice <= breakEvenTriggerPrice)) {
+                breakEvenTriggerReached = true;
+            }
+
+            //check order 1
+            if (order1IsOpen) {
+                IOrder o1 = engine.getOrder(order1Label);
+                if (o1 != null) {
+                    double openPrice = o1.getOpenPrice();
+                    if (o1.getStopLossPrice() != openPrice) {
+                        if (breakEvenTriggerReached) {
+                            o1.setStopLossPrice(openPrice); // move SL to B.E.
+                            console.getOut().println("Order 1 " + o1.getLabel() + ": SL moved to B.E.");
+                        }
                     }
+                } else {
+                    console.getErr().println("Order 1 " + order1Label + " not found");
                 }
-            } else {
-                console.getErr().println("Order " + orderLabel + " not found");
+            }
+
+            //check order 2
+            if (scaleOutActive && order2IsOpen) {
+                IOrder o2 = engine.getOrder(order2Label);
+                if (o2 != null) {
+                    double openPrice = o2.getOpenPrice();
+                    if (o2.getStopLossPrice() != openPrice) {
+                        if (breakEvenTriggerReached) {
+                            o2.setStopLossPrice(openPrice); // move SL to B.E.
+                            console.getOut().println("Order 2 " + o2.getLabel() + ": SL moved to B.E.");
+                        }
+                    }
+                } else {
+                    console.getErr().println("Order 2 " + order2Label + " not found");
+                }
             }
         }
     }
@@ -328,4 +409,3 @@ public class ConstantRiskSLfromTP implements IStrategy {
     }
 
 }
-
