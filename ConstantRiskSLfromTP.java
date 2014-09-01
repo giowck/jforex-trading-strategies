@@ -99,7 +99,7 @@ public class ConstantRiskSLfromTP implements IStrategy {
         this.console = context.getConsole();
         this.totalProfit = 0;
         this.totalCommission = 0;
-        this.orderLabel = "";
+        this.orderLabel = "invalid";
 
         //subscribe instruments
         console.getOut().println("Strategy starting. Subscribing instruments...");
@@ -160,30 +160,30 @@ public class ConstantRiskSLfromTP implements IStrategy {
 
         @Override
     public void onMessage(IMessage message) throws JFException {
-        if (message.getType() == Type.ORDER_CLOSE_OK) {
-            //update order variable on order close
-            this.orderIsOpen = false;
-            IOrder order = message.getOrder();
-            console.getInfo().println("Order " + order.getLabel() +
-                                      " closed. Profit: " + order.getProfitLossInAccountCurrency());
-            //update profit/loss and commission
-            this.totalProfit += order.getProfitLossInAccountCurrency();
-            this.totalCommission += order.getCommission();
-            
-        } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
-            //update order variable on order rejection
-            this.orderIsOpen = false;
-            IOrder order = message.getOrder();
-            console.getErr().println("Order " + order.getLabel() + " rejected.");
+        IOrder order = message.getOrder();
+        //handle only messages relative to the order managed by this instance
+        if (order.getLabel().equals(orderLabel)) {
+            if (message.getType() == Type.ORDER_CLOSE_OK) {
+                //update order variable on order close
+                this.orderIsOpen = false;
+                console.getInfo().println("Order " + order.getLabel()
+                        + " closed. Profit: " + order.getProfitLossInAccountCurrency());
+                //update profit/loss and commission
+                this.totalProfit += order.getProfitLossInAccountCurrency();
+                this.totalCommission += order.getCommission();
+            } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
+                //update order variable on order rejection
+                this.orderIsOpen = false;
+                console.getErr().println("Order " + order.getLabel() + " rejected.");
 
-        } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
-            IOrder order = message.getOrder();
-            console.getErr().println("Order " + order.getLabel() + " change rejected.");
+            } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
+                console.getErr().println("Order " + order.getLabel() + " change rejected.");
 
-        } else if ((message.getType() == Type.INSTRUMENT_STATUS)
-                || (message.getType() == Type.CALENDAR)) {
-            //filter out
-            return;
+            } else if ((message.getType() == Type.INSTRUMENT_STATUS)
+                    || (message.getType() == Type.CALENDAR)) {
+                //filter out
+                return;
+            }
         }
         context.getConsole().getOut().println("Message: " + message.toString());
     }
@@ -211,14 +211,17 @@ public class ConstantRiskSLfromTP implements IStrategy {
         } else {
             stopLossPrice = lastTick.getBid() + stopLossPips * instrument.getPipValue();
         }
-        
+
         //calc position size
         positionSize = getPositionSize(instrument, stopLossPips, currencyRisk, orderCmd);
-        
+
+        //create order label
+        this.orderLabel = getLabel(orderCmd);
+
         //submit order at market
-        return engine.submitOrder(getLabel(orderCmd), instrument, orderCmd, positionSize, 0, 5, stopLossPrice, takeProfitPrice);
+        return engine.submitOrder(orderLabel, instrument, orderCmd, positionSize, 0, 5, stopLossPrice, takeProfitPrice);
     }
-    
+
     private String getLabel(OrderCommand cmd) {
         return cmd.toString() + System.currentTimeMillis();
     }
