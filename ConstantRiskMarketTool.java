@@ -152,34 +152,34 @@ public class ConstantRiskMarketTool implements IStrategy {
         }
     }
 
-        @Override
+    @Override
     public void onMessage(IMessage message) throws JFException {
         IOrder order = message.getOrder();
-        //handle only messages relative to the order managed by this instance
-        if (order.getLabel().equals(orderLabel)) {
-            if (message.getType() == Type.ORDER_CLOSE_OK) {
-                //update order variable on order close
-                this.orderIsOpen = false;
-                console.getInfo().println("Order " + order.getLabel()
-                        + " closed. Profit: " + order.getProfitLossInAccountCurrency());
-                //update profit/loss and commission
-                this.totalProfit += order.getProfitLossInAccountCurrency();
-                this.totalCommission += order.getCommission();
-            } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
-                //update order variable on order rejection
-                this.orderIsOpen = false;
-                console.getErr().println("Order " + order.getLabel() + " rejected.");
-
-            } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
-                console.getErr().println("Order " + order.getLabel() + " change rejected.");
-
-            } else if ((message.getType() == Type.INSTRUMENT_STATUS)
-                    || (message.getType() == Type.CALENDAR)) {
-                //filter out
-                return;
+        if (order != null) {
+            //handle only messages relative to the order managed by this instance
+            if (order.getLabel().equals(orderLabel)) {
+                if (message.getType() == Type.ORDER_CLOSE_OK) {
+                    //update order variable on order close
+                    this.orderIsOpen = false;
+                    console.getInfo().println("Order " + order.getLabel()
+                            + " closed. Profit: " + order.getProfitLossInAccountCurrency());
+                    //update profit/loss and commission
+                    this.totalProfit += order.getProfitLossInAccountCurrency();
+                    this.totalCommission += order.getCommission();
+                } else if (message.getType() == Type.ORDER_SUBMIT_REJECTED) {
+                    //update order variable on order rejection
+                    this.orderIsOpen = false;
+                    console.getErr().println("Order " + order.getLabel() + " rejected.");
+                } else if (message.getType() == Type.ORDER_CHANGED_REJECTED) {
+                    console.getErr().println("Order " + order.getLabel() + " change rejected.");
+                }
             }
+        } else if ((message.getType() == Type.INSTRUMENT_STATUS)
+                || (message.getType() == Type.CALENDAR)) {
+            //filter out
+        } else {
+            context.getConsole().getOut().println("Message: " + message.toString());
         }
-        context.getConsole().getOut().println("Message: " + message.toString());
     }
 
     @Override
