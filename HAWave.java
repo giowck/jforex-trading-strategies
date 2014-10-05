@@ -172,12 +172,11 @@ public class HAWave implements IStrategy {
             checkSLMoveBE(askBar, bidBar);
         }
         
-        //close order if Heikin Ashi candle has oppisite color
+        //close order if Heikin Ashi candle has opposite color
         if (instrument.equals(this.instrument) && period.equals(this.period) && (orderIsOpen)) {
             double[] haCandle = indicators.heikinAshi(instrument, period, OfferSide.BID, 1);
             double haOpen = haCandle[0];
             double haClose = haCandle[1];
-            console.getErr().println("open " + haOpen + " close " + haClose);
             
             boolean closeOrder = false;
             if (isBuyOrder) {
